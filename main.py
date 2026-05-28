@@ -1,11 +1,3 @@
-#  This file will be the main entry point for the application. It will be responsible for starting the application and initializing any necessary components.
-# It will create the main window and set up the user interface. It will also handle any necessary events and interactions with the user.
-# I need a gui with a button to import project files. They should be 'Collectors.csv', 'CollectorUsagePrem.csv', 'DataAll.csv', 'DataByColl.csv', 'Prem.csv', 'RSSIDecline.csv'
-# When the user clicks the button, it should open a file dialog to allow them to select the files.
-# The user should be able to edit the files in the application and save any changes back to the original files. Particularly the 'Collectors.csv', the user shuould add the 'EDXName' column to it. 
-# There should be an area in the application that displays the unique collectors from the 'Collectors.csv' file. The user should select only the collectors they want to include in the analysis. The selected collectors should be used to filter the data in the other files and update the displayed information accordingly.
-# Collector Column Names: 'Collectors.csv' -> 'collector name'; 'CollectorUsagePrem.csv' -> 'collector'; 'DataByColl.csv' -> 'device_description'; 'Prem.csv' -> 'collowner'
-
 import sys
 import os
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout, QWidget, QListWidget, QMessageBox
@@ -36,7 +28,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.import_button)
 
         self.collector_list_widget = QListWidget()
+        self.collector_list_widget.setSelectionMode(self.collector_list_widget.MultiSelection)
         layout.addWidget(self.collector_list_widget)
+
+        self.filter_button = QPushButton("Filter Collectors")
+        self.filter_button.clicked.connect(self.filter_collectors)
+        layout.addWidget(self.filter_button)
+
+        self.remove_button = QPushButton("Remove All Files")
+        self.remove_button.clicked.connect(self.remove_all_files)
+        layout.addWidget(self.remove_button)
 
         container = QWidget()
         container.setLayout(layout)
@@ -67,9 +68,73 @@ class MainWindow(QMainWindow):
                 
                 if self.collectors_data is not None:
                     unique_collectors = self.collectors_data['collector name'].unique()
-                    self.collector_list_widget.addItems(unique_collectors)
+                    self.collector_list_widget.clear()
+                    self.collector_list_widget.addItems([str(c) for c in unique_collectors])
+                    QMessageBox.information(self, "Success", f"Files imported successfully. Found {len(unique_collectors)} collectors.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"An error occurred while importing files: {e}")
+
+    def filter_collectors(self):
+        selected_items = self.collector_list_widget.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Warning", "Please select at least one collector to filter.")
+            return
+        
+        try:
+            self.selected_collectors = [item.text() for item in selected_items]
+            
+            # Filter each loaded file by selected collectors
+            if self.collectors_data is not None:
+                self.collectors_data = self.collectors_data[self.collectors_data['collector name'].isin(self.selected_collectors)]
+            
+            if self.collector_usage_prem_file is not None:
+                data = pd.read_csv(self.collector_usage_prem_file)
+                data = data[data['collector'].isin(self.selected_collectors)]
+                data.to_csv(self.collector_usage_prem_file, index=False)
+            
+            if self.data_all_file is not None:
+                data = pd.read_csv(self.data_all_file)
+                data = data[data['device_description'].isin(self.selected_collectors)]
+                data.to_csv(self.data_all_file, index=False)
+            
+            if self.data_by_coll_file is not None:
+                data = pd.read_csv(self.data_by_coll_file)
+                data = data[data['device_description'].isin(self.selected_collectors)]
+                data.to_csv(self.data_by_coll_file, index=False)
+            
+            if self.prem_file is not None:
+                data = pd.read_csv(self.prem_file)
+                data = data[data['collowner'].isin(self.selected_collectors)]
+                data.to_csv(self.prem_file, index=False)
+            
+            if self.rssi_decline_file is not None:
+                data = pd.read_csv(self.rssi_decline_file)
+                # Assuming a column exists for filtering; adjust if needed
+                if 'collector' in data.columns:
+                    data = data[data['collector'].isin(self.selected_collectors)]
+                    data.to_csv(self.rssi_decline_file, index=False)
+            
+            QMessageBox.information(self, "Success", f"Filtered {len(self.selected_collectors)} collector(s) across all files.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred while filtering collectors: {e}")
+
+    def remove_all_files(self):
+        reply = QMessageBox.question(self, "Confirm", "Are you sure you want to remove all files from memory?",
+                                      QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.collectors_file = None
+            self.collector_usage_prem_file = None
+            self.data_all_file = None
+            self.data_by_coll_file = None
+            self.prem_file = None
+            self.rssi_decline_file = None
+            
+            self.collectors_data = None
+            self.selected_collectors = []
+            
+            self.collector_list_widget.clear()
+            QMessageBox.information(self, "Success", "All files have been removed from memory.")
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     main_window = MainWindow()
