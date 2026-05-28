@@ -95,12 +95,6 @@ class MainWindow(QMainWindow):
                 data = data[data['collector'].isin(self.selected_collectors)]
                 data.to_csv(self.collector_usage_prem_file, index=False)
             
-            # Filter and save DataAll.csv
-            if self.data_all_file is not None:
-                data = pd.read_csv(self.data_all_file)
-                data = data[data['device_description'].isin(self.selected_collectors)]
-                data.to_csv(self.data_all_file, index=False)
-            
             # Filter and save DataByColl.csv
             if self.data_by_coll_file is not None:
                 data = pd.read_csv(self.data_by_coll_file)
@@ -112,14 +106,6 @@ class MainWindow(QMainWindow):
                 data = pd.read_csv(self.prem_file)
                 data = data[data['collowner'].isin(self.selected_collectors)]
                 data.to_csv(self.prem_file, index=False)
-            
-            # Filter and save RSSIDecline.csv
-            if self.rssi_decline_file is not None:
-                data = pd.read_csv(self.rssi_decline_file)
-                # Assuming a column exists for filtering; adjust if needed
-                if 'collector' in data.columns:
-                    data = data[data['collector'].isin(self.selected_collectors)]
-                    data.to_csv(self.rssi_decline_file, index=False)
             
             QMessageBox.information(self, "Success", f"Filtered {len(self.selected_collectors)} collector(s) across all files.")
         except Exception as e:
