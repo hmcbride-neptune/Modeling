@@ -1,6 +1,6 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout, QWidget, QListWidget, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout, QWidget, QListWidget, QMessageBox, QLabel
 import pandas as pd
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -27,6 +27,18 @@ class MainWindow(QMainWindow):
         self.import_button.clicked.connect(self.import_files)
         layout.addWidget(self.import_button)
 
+        # Files list section
+        files_label = QLabel("Imported Files:")
+        layout.addWidget(files_label)
+        
+        self.files_list_widget = QListWidget()
+        self.files_list_widget.setMaximumHeight(100)
+        layout.addWidget(self.files_list_widget)
+
+        # Collectors list section
+        collectors_label = QLabel("Collectors:")
+        layout.addWidget(collectors_label)
+        
         self.collector_list_widget = QListWidget()
         self.collector_list_widget.setSelectionMode(self.collector_list_widget.MultiSelection)
         layout.addWidget(self.collector_list_widget)
@@ -66,6 +78,8 @@ class MainWindow(QMainWindow):
                     elif 'RSSIDecline.csv' in file:
                         self.rssi_decline_file = file
                 
+                self.update_file_list()
+                
                 if self.collectors_data is not None:
                     unique_collectors = self.collectors_data['collector name'].unique()
                     self.collector_list_widget.clear()
@@ -73,6 +87,29 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(self, "Success", f"Files imported successfully. Found {len(unique_collectors)} collectors.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"An error occurred while importing files: {e}")
+
+    def update_file_list(self):
+        """Update the files list widget to show all imported files."""
+        self.files_list_widget.clear()
+        files_imported = []
+        
+        if self.collectors_file:
+            files_imported.append(f"✓ Collectors.csv")
+        if self.collector_usage_prem_file:
+            files_imported.append(f"✓ CollectorUsagePrem.csv")
+        if self.data_all_file:
+            files_imported.append(f"✓ DataAll.csv")
+        if self.data_by_coll_file:
+            files_imported.append(f"✓ DataByColl.csv")
+        if self.prem_file:
+            files_imported.append(f"✓ Prem.csv")
+        if self.rssi_decline_file:
+            files_imported.append(f"✓ RSSIDecline.csv")
+        
+        if files_imported:
+            self.files_list_widget.addItems(files_imported)
+        else:
+            self.files_list_widget.addItem("No files imported")
 
     def filter_collectors(self):
         selected_items = self.collector_list_widget.selectedItems()
@@ -106,6 +143,12 @@ class MainWindow(QMainWindow):
                 data = pd.read_csv(self.prem_file)
                 data = data[data['collowner'].isin(self.selected_collectors)]
                 data.to_csv(self.prem_file, index=False)
+            
+            # Update the collector list to show only filtered collectors
+            self.collector_list_widget.clear()
+            self.files_list_widget.clear()
+            self.files_list_widget.addItem("No files imported")
+            self.collector_list_widget.addItems(self.selected_collectors)
             
             QMessageBox.information(self, "Success", f"Filtered {len(self.selected_collectors)} collector(s) across all files.")
         except Exception as e:
