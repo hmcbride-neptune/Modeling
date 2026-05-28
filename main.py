@@ -83,30 +83,37 @@ class MainWindow(QMainWindow):
         try:
             self.selected_collectors = [item.text() for item in selected_items]
             
-            # Filter each loaded file by selected collectors
-            if self.collectors_data is not None:
-                self.collectors_data = self.collectors_data[self.collectors_data['collector name'].isin(self.selected_collectors)]
+            # Filter and save Collectors.csv
+            if self.collectors_data is not None and self.collectors_file is not None:
+                filtered_collectors = self.collectors_data[self.collectors_data['collector name'].isin(self.selected_collectors)]
+                filtered_collectors.to_csv(self.collectors_file, index=False)
+                self.collectors_data = filtered_collectors
             
+            # Filter and save CollectorUsagePrem.csv
             if self.collector_usage_prem_file is not None:
                 data = pd.read_csv(self.collector_usage_prem_file)
                 data = data[data['collector'].isin(self.selected_collectors)]
                 data.to_csv(self.collector_usage_prem_file, index=False)
             
+            # Filter and save DataAll.csv
             if self.data_all_file is not None:
                 data = pd.read_csv(self.data_all_file)
                 data = data[data['device_description'].isin(self.selected_collectors)]
                 data.to_csv(self.data_all_file, index=False)
             
+            # Filter and save DataByColl.csv
             if self.data_by_coll_file is not None:
                 data = pd.read_csv(self.data_by_coll_file)
                 data = data[data['device_description'].isin(self.selected_collectors)]
                 data.to_csv(self.data_by_coll_file, index=False)
             
+            # Filter and save Prem.csv
             if self.prem_file is not None:
                 data = pd.read_csv(self.prem_file)
                 data = data[data['collowner'].isin(self.selected_collectors)]
                 data.to_csv(self.prem_file, index=False)
             
+            # Filter and save RSSIDecline.csv
             if self.rssi_decline_file is not None:
                 data = pd.read_csv(self.rssi_decline_file)
                 # Assuming a column exists for filtering; adjust if needed
