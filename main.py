@@ -1,6 +1,6 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout, QWidget, QListWidget, QMessageBox, QLabel
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout, QWidget, QListWidget, QMessageBox, QLabel, QLineEdit
 import pandas as pd
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -17,6 +17,8 @@ class MainWindow(QMainWindow):
 
         self.collectors_data = None
         self.selected_collectors = []
+        self.all_collectors = []
+        self.search_text = ""
 
         self.init_ui()
 
@@ -39,8 +41,14 @@ class MainWindow(QMainWindow):
         collectors_label = QLabel("Collectors:")
         layout.addWidget(collectors_label)
         
+        self.collector_search = QLineEdit()
+        self.collector_search.setPlaceholderText("Search collectors...")
+        self.collector_search.textChanged.connect(self.search_collectors)
+        layout.addWidget(self.collector_search)
+        
         self.collector_list_widget = QListWidget()
         self.collector_list_widget.setSelectionMode(self.collector_list_widget.MultiSelection)
+        self.collector_list_widget.itemSelectionChanged.connect(self.sync_selected_collectors)
         layout.addWidget(self.collector_list_widget)
 
         self.filter_button = QPushButton("Filter Collectors")
@@ -82,8 +90,8 @@ class MainWindow(QMainWindow):
                 
                 if self.collectors_data is not None:
                     unique_collectors = self.collectors_data['collector name'].unique()
-                    self.collector_list_widget.clear()
-                    self.collector_list_widget.addItems([str(c) for c in unique_collectors])
+                    self.all_collectors = [str(c) for c in unique_collectors]
+                    self.update_collector_list()
                     QMessageBox.information(self, "Success", f"Files imported successfully. Found {len(unique_collectors)} collectors.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"An error occurred while importing files: {e}")
@@ -110,6 +118,32 @@ class MainWindow(QMainWindow):
             self.files_list_widget.addItems(files_imported)
         else:
             self.files_list_widget.addItem("No files imported")
+
+    def update_collector_list(self):
+        """Refresh the collector list based on search text and current selections."""
+        self.collector_list_widget.blockSignals(True)
+        self.collector_list_widget.clear()
+        filtered = [collector for collector in self.all_collectors if self.search_text.lower() in collector.lower()]
+        self.collector_list_widget.addItems(filtered)
+        for i in range(self.collector_list_widget.count()):
+            item = self.collector_list_widget.item(i)
+            if item.text() in self.selected_collectors:
+                item.setSelected(True)
+        self.collector_list_widget.blockSignals(False)
+
+    def search_collectors(self, text):
+        self.search_text = text
+        self.update_collector_list()
+
+    def sync_selected_collectors(self):
+        selected_items = self.collector_list_widget.selectedItems()
+        visible_items = [self.collector_list_widget.item(i).text() for i in range(self.collector_list_widget.count())]
+        selected_texts = [item.text() for item in selected_items]
+
+        # Preserve selections for collectors not currently visible while syncing visible selection state.
+        self.selected_collectors = [text for text in self.selected_collectors if text not in visible_items]
+        self.selected_collectors.extend([text for text in selected_texts if text not in self.selected_collectors])
+        self.selected_collectors = [text for text in self.selected_collectors if text in self.all_collectors]
 
     def filter_collectors(self):
         selected_items = self.collector_list_widget.selectedItems()
@@ -145,10 +179,10 @@ class MainWindow(QMainWindow):
                 data.to_csv(self.prem_file, index=False)
             
             # Update the collector list to show only filtered collectors
-            self.collector_list_widget.clear()
-            self.files_list_widget.clear()
-            self.files_list_widget.addItem("No files imported")
-            self.collector_list_widget.addItems(self.selected_collectors)
+            self.all_collectors = list(self.selected_collectors)
+            self.search_text = ""
+            self.collector_search.clear()
+            self.update_collector_list()
             
             QMessageBox.information(self, "Success", f"Filtered {len(self.selected_collectors)} collector(s) across all files.")
         except Exception as e:
@@ -167,6 +201,11 @@ class MainWindow(QMainWindow):
             
             self.collectors_data = None
             self.selected_collectors = []
+            self.all_collectors = []
+            self.search_text = ""
+            self.collector_search.clear()
+            self.files_list_widget.clear()
+            self.files_list_widget.addItem("No files imported")
             
             self.collector_list_widget.clear()
             QMessageBox.information(self, "Success", "All files have been removed from memory.")
