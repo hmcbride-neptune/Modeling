@@ -1,23 +1,158 @@
 import sys
-import os
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout, QWidget, QListWidget, QMessageBox, QLabel, QLineEdit
 import pandas as pd
+from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout,
+    QHBoxLayout, QWidget, QListWidget, QListWidgetItem, QMessageBox,
+    QLabel, QLineEdit, QDialog, QDialogButtonBox, QTableWidget,
+    QTableWidgetItem, QInputDialog,
+)
+from file_cleanup import FileManager
+
+
+class PasteableTableWidget(QTableWidget):
+    """QTableWidget that accepts Excel-style Ctrl+V paste (TSV with newline-separated rows)."""
+
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.Paste):
+            self._paste_from_clipboard()
+            return
+        super().keyPressEvent(event)
+
+    def _paste_from_clipboard(self):
+        text = QApplication.clipboard().text()
+        if not text:
+            return
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        if text.endswith('\n'):
+            text = text[:-1]
+        rows = [line.split('\t') for line in text.split('\n')]
+
+        start_row = max(self.currentRow(), 0)
+        start_col = max(self.currentColumn(), 0)
+
+        needed_rows = start_row + len(rows)
+        if needed_rows > self.rowCount():
+            self.setRowCount(needed_rows)
+
+        for r, row in enumerate(rows):
+            for c, value in enumerate(row):
+                col = start_col + c
+                if col >= self.columnCount():
+                    break
+                self.setItem(start_row + r, col, QTableWidgetItem(value))
+
+
+class CollectorsEditorDialog(QDialog):
+    """Modal editor that loads a CSV into a table, lets the user edit cells, and saves."""
+
+    def __init__(self, file_path, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self.df = pd.read_csv(file_path)
+        self.result_df = None
+
+        self.setWindowTitle("Edit Collectors.csv")
+        self.resize(800, 600)
+
+        layout = QVBoxLayout()
+
+        self.table = PasteableTableWidget(len(self.df), len(self.df.columns))
+        self.table.setHorizontalHeaderLabels([str(c) for c in self.df.columns])
+        for r in range(len(self.df)):
+            for c in range(len(self.df.columns)):
+                value = self.df.iat[r, c]
+                text = "" if pd.isna(value) else str(value)
+                self.table.setItem(r, c, QTableWidgetItem(text))
+        layout.addWidget(self.table)
+
+        row_buttons = QHBoxLayout()
+        add_row_btn = QPushButton("Add Row")
+        add_row_btn.clicked.connect(self.add_row)
+        remove_row_btn = QPushButton("Remove Selected Row")
+        remove_row_btn.clicked.connect(self.remove_selected_row)
+        add_col_btn = QPushButton("Add Column")
+        add_col_btn.clicked.connect(self.add_column)
+        remove_col_btn = QPushButton("Remove Selected Column")
+        remove_col_btn.clicked.connect(self.remove_selected_column)
+        row_buttons.addWidget(add_row_btn)
+        row_buttons.addWidget(remove_row_btn)
+        row_buttons.addWidget(add_col_btn)
+        row_buttons.addWidget(remove_col_btn)
+        row_buttons.addStretch()
+        layout.addLayout(row_buttons)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+
+    def add_row(self):
+        self.table.insertRow(self.table.rowCount())
+
+    def remove_selected_row(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            self.table.removeRow(row)
+
+    def add_column(self):
+        name, ok = QInputDialog.getText(self, "Add Column", "Column name:")
+        if not ok or not name.strip():
+            return
+        col = self.table.columnCount()
+        self.table.insertColumn(col)
+        self.table.setHorizontalHeaderItem(col, QTableWidgetItem(name.strip()))
+
+    def remove_selected_column(self):
+        col = self.table.currentColumn()
+        if col >= 0:
+            self.table.removeColumn(col)
+
+    def save(self):
+        columns = [self.table.horizontalHeaderItem(c).text() for c in range(self.table.columnCount())]
+        data = []
+        for r in range(self.table.rowCount()):
+            row = []
+            for c in range(self.table.columnCount()):
+                item = self.table.item(r, c)
+                row.append(item.text() if item is not None else "")
+            data.append(row)
+        try:
+            new_df = pd.DataFrame(data, columns=columns)
+            new_df.to_csv(self.file_path, index=False)
+            self.result_df = new_df
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
+
+
+def _delegated(name):
+    """Build a property that forwards reads and writes to self.file_manager.<name>."""
+    return property(
+        lambda self: getattr(self.file_manager, name),
+        lambda self, value: setattr(self.file_manager, name, value),
+    )
+
+
 class MainWindow(QMainWindow):
+    collectors_file = _delegated('collectors_file')
+    collector_usage_prem_file = _delegated('collector_usage_prem_file')
+    data_all_file = _delegated('data_all_file')
+    data_by_coll_file = _delegated('data_by_coll_file')
+    prem_file = _delegated('prem_file')
+    rssi_decline_file = _delegated('rssi_decline_file')
+    collectors_data = _delegated('collectors_data')
+    all_collectors = _delegated('all_collectors')
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Collector Data Analysis")
         self.setGeometry(100, 100, 800, 600)
 
-        self.collectors_file = None
-        self.collector_usage_prem_file = None
-        self.data_all_file = None
-        self.data_by_coll_file = None
-        self.prem_file = None
-        self.rssi_decline_file = None
-
-        self.collectors_data = None
+        self.file_manager = FileManager()
         self.selected_collectors = []
-        self.all_collectors = []
         self.search_text = ""
 
         self.init_ui()
@@ -29,23 +164,21 @@ class MainWindow(QMainWindow):
         self.import_button.clicked.connect(self.import_files)
         layout.addWidget(self.import_button)
 
-        # Files list section
         files_label = QLabel("Imported Files:")
         layout.addWidget(files_label)
-        
+
         self.files_list_widget = QListWidget()
         self.files_list_widget.setMaximumHeight(100)
         layout.addWidget(self.files_list_widget)
 
-        # Collectors list section
         collectors_label = QLabel("Collectors:")
         layout.addWidget(collectors_label)
-        
+
         self.collector_search = QLineEdit()
         self.collector_search.setPlaceholderText("Search collectors...")
         self.collector_search.textChanged.connect(self.search_collectors)
         layout.addWidget(self.collector_search)
-        
+
         self.collector_list_widget = QListWidget()
         self.collector_list_widget.setSelectionMode(self.collector_list_widget.MultiSelection)
         self.collector_list_widget.itemSelectionChanged.connect(self.sync_selected_collectors)
@@ -54,6 +187,10 @@ class MainWindow(QMainWindow):
         self.filter_button = QPushButton("Filter Collectors")
         self.filter_button.clicked.connect(self.filter_collectors)
         layout.addWidget(self.filter_button)
+
+        self.clean_button = QPushButton("Clean Files")
+        self.clean_button.clicked.connect(self.clean_prem)
+        layout.addWidget(self.clean_button)
 
         self.remove_button = QPushButton("Remove All Files")
         self.remove_button.clicked.connect(self.remove_all_files)
@@ -68,56 +205,52 @@ class MainWindow(QMainWindow):
         options |= QFileDialog.ReadOnly
         files, _ = QFileDialog.getOpenFileNames(self, "Select Project Files", "",
                                                 "CSV Files (*.csv);;All Files (*)", options=options)
-        
+
         if files:
             try:
-                for file in files:
-                    if 'Collectors.csv' in file:
-                        self.collectors_file = file
-                        self.collectors_data = pd.read_csv(file)
-                    elif 'CollectorUsagePrem.csv' in file:
-                        self.collector_usage_prem_file = file
-                    elif 'DataAll.csv' in file:
-                        self.data_all_file = file
-                    elif 'DataByColl.csv' in file:
-                        self.data_by_coll_file = file
-                    elif 'Prem.csv' in file:
-                        self.prem_file = file
-                    elif 'RSSIDecline.csv' in file:
-                        self.rssi_decline_file = file
-                
+                count = self.file_manager.import_files(files)
                 self.update_file_list()
-                
                 if self.collectors_data is not None:
-                    unique_collectors = self.collectors_data['collector name'].unique()
-                    self.all_collectors = [str(c) for c in unique_collectors]
                     self.update_collector_list()
-                    QMessageBox.information(self, "Success", f"Files imported successfully. Found {len(unique_collectors)} collectors.")
+                    QMessageBox.information(self, "Success", f"Files imported successfully. Found {count} collectors.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"An error occurred while importing files: {e}")
 
     def update_file_list(self):
         """Update the files list widget to show all imported files."""
         self.files_list_widget.clear()
-        files_imported = []
-        
-        if self.collectors_file:
-            files_imported.append(f"✓ Collectors.csv")
-        if self.collector_usage_prem_file:
-            files_imported.append(f"✓ CollectorUsagePrem.csv")
-        if self.data_all_file:
-            files_imported.append(f"✓ DataAll.csv")
-        if self.data_by_coll_file:
-            files_imported.append(f"✓ DataByColl.csv")
-        if self.prem_file:
-            files_imported.append(f"✓ Prem.csv")
-        if self.rssi_decline_file:
-            files_imported.append(f"✓ RSSIDecline.csv")
-        
-        if files_imported:
-            self.files_list_widget.addItems(files_imported)
-        else:
+        imported = self.file_manager.get_imported_filenames()
+        if not imported:
             self.files_list_widget.addItem("No files imported")
+            return
+
+        for filename in imported:
+            item = QListWidgetItem(self.files_list_widget)
+            if filename == "Collectors.csv":
+                row_widget = QWidget()
+                row_layout = QHBoxLayout()
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.addWidget(QLabel(f"✓ {filename}"))
+                row_layout.addStretch()
+                edit_btn = QPushButton("Edit")
+                edit_btn.clicked.connect(self.open_collectors_editor)
+                row_layout.addWidget(edit_btn)
+                row_widget.setLayout(row_layout)
+                item.setSizeHint(row_widget.sizeHint())
+                self.files_list_widget.setItemWidget(item, row_widget)
+            else:
+                item.setText(f"✓ {filename}")
+
+    def open_collectors_editor(self):
+        """Open the tabular editor for Collectors.csv and refresh state on save."""
+        if not self.file_manager.collectors_file:
+            return
+        dialog = CollectorsEditorDialog(self.file_manager.collectors_file, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.result_df is not None:
+            self.file_manager.set_collectors_data(dialog.result_df)
+            self.selected_collectors = [c for c in self.selected_collectors if c in self.all_collectors]
+            self.update_collector_list()
+            QMessageBox.information(self, "Saved", "Collectors.csv has been updated.")
 
     def update_collector_list(self):
         """Refresh the collector list based on search text and current selections."""
@@ -150,65 +283,45 @@ class MainWindow(QMainWindow):
         if not selected_items:
             QMessageBox.warning(self, "Warning", "Please select at least one collector to filter.")
             return
-        
+
         try:
             self.selected_collectors = [item.text() for item in selected_items]
-            
-            # Filter and save Collectors.csv
-            if self.collectors_data is not None and self.collectors_file is not None:
-                filtered_collectors = self.collectors_data[self.collectors_data['collector name'].isin(self.selected_collectors)]
-                filtered_collectors.to_csv(self.collectors_file, index=False)
-                self.collectors_data = filtered_collectors
-            
-            # Filter and save CollectorUsagePrem.csv
-            if self.collector_usage_prem_file is not None:
-                data = pd.read_csv(self.collector_usage_prem_file)
-                data = data[data['collector'].isin(self.selected_collectors)]
-                data.to_csv(self.collector_usage_prem_file, index=False)
-            
-            # Filter and save DataByColl.csv
-            if self.data_by_coll_file is not None:
-                data = pd.read_csv(self.data_by_coll_file)
-                data = data[data['device_description'].isin(self.selected_collectors)]
-                data.to_csv(self.data_by_coll_file, index=False)
-            
-            # Filter and save Prem.csv
-            if self.prem_file is not None:
-                data = pd.read_csv(self.prem_file)
-                data = data[data['collowner'].isin(self.selected_collectors)]
-                data.to_csv(self.prem_file, index=False)
-            
-            # Update the collector list to show only filtered collectors
-            self.all_collectors = list(self.selected_collectors)
+            self.file_manager.filter_by_collectors(self.selected_collectors)
             self.search_text = ""
             self.collector_search.clear()
             self.update_collector_list()
-            
             QMessageBox.information(self, "Success", f"Filtered {len(self.selected_collectors)} collector(s) across all files.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while filtering collectors: {e}")
+
+    def clean_prem(self):
+        """Drop Prem.csv rows whose latitude or longitude is invalid."""
+        try:
+            removed, status = self.file_manager.clean_prem_lat_lon()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred while cleaning Prem.csv: {e}")
+            return
+
+        if status == 'no_file':
+            QMessageBox.warning(self, "Warning", "Prem.csv has not been imported.")
+        elif status == 'no_lat_lon_columns':
+            QMessageBox.warning(self, "Warning", "Could not find latitude/longitude columns in Prem.csv.")
+        else:
+            QMessageBox.information(self, "Success", f"Removed {removed} Prem.csv row(s) with invalid lat/lon.")
 
     def remove_all_files(self):
         reply = QMessageBox.question(self, "Confirm", "Are you sure you want to remove all files from memory?",
                                       QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self.collectors_file = None
-            self.collector_usage_prem_file = None
-            self.data_all_file = None
-            self.data_by_coll_file = None
-            self.prem_file = None
-            self.rssi_decline_file = None
-            
-            self.collectors_data = None
+            self.file_manager.reset()
             self.selected_collectors = []
-            self.all_collectors = []
             self.search_text = ""
             self.collector_search.clear()
             self.files_list_widget.clear()
             self.files_list_widget.addItem("No files imported")
-            
             self.collector_list_widget.clear()
             QMessageBox.information(self, "Success", "All files have been removed from memory.")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
