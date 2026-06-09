@@ -5,9 +5,10 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout,
     QHBoxLayout, QWidget, QListWidget, QListWidgetItem, QMessageBox,
     QLabel, QLineEdit, QDialog, QDialogButtonBox, QTableWidget,
-    QTableWidgetItem, QInputDialog,
+    QTableWidgetItem, QInputDialog, QProgressBar,
 )
 from file_cleanup import FileManager
+from SystemAnalysis import run_analysis
 
 
 class PasteableTableWidget(QTableWidget):
@@ -192,13 +193,34 @@ class MainWindow(QMainWindow):
         self.clean_button.clicked.connect(self.clean_prem)
         layout.addWidget(self.clean_button)
 
+        self.create_files_button = QPushButton("Create Files")
+        self.create_files_button.clicked.connect(self.create_files)
+        layout.addWidget(self.create_files_button)
+
         self.remove_button = QPushButton("Remove All Files")
         self.remove_button.clicked.connect(self.remove_all_files)
         layout.addWidget(self.remove_button)
 
+        self.progress_label = QLabel("Idle")
+        layout.addWidget(self.progress_label)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
+
+    def _set_progress(self, percent, message):
+        """Update the progress bar/label and force the UI to repaint."""
+        self.progress_bar.setValue(int(percent))
+        self.progress_label.setText(message)
+        QApplication.processEvents()
+
+    def _reset_progress(self):
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Idle")
 
     def import_files(self):
         options = QFileDialog.Options()
@@ -208,12 +230,17 @@ class MainWindow(QMainWindow):
 
         if files:
             try:
+                self._set_progress(20, "Importing files...")
                 count = self.file_manager.import_files(files)
+                self._set_progress(70, "Updating file list...")
                 self.update_file_list()
                 if self.collectors_data is not None:
                     self.update_collector_list()
+                    self._set_progress(100, f"Imported {count} collectors")
                     QMessageBox.information(self, "Success", f"Files imported successfully. Found {count} collectors.")
+                self._reset_progress()
             except Exception as e:
+                self._reset_progress()
                 QMessageBox.critical(self, "Error", f"An error occurred while importing files: {e}")
 
     def update_file_list(self):
@@ -286,28 +313,97 @@ class MainWindow(QMainWindow):
 
         try:
             self.selected_collectors = [item.text() for item in selected_items]
+            self._set_progress(30, "Filtering source files...")
             self.file_manager.filter_by_collectors(self.selected_collectors)
+            self._set_progress(80, "Refreshing collector list...")
             self.search_text = ""
             self.collector_search.clear()
             self.update_collector_list()
+            self._set_progress(100, f"Filtered {len(self.selected_collectors)} collector(s)")
             QMessageBox.information(self, "Success", f"Filtered {len(self.selected_collectors)} collector(s) across all files.")
+            self._reset_progress()
         except Exception as e:
+            self._reset_progress()
             QMessageBox.critical(self, "Error", f"An error occurred while filtering collectors: {e}")
 
     def clean_prem(self):
         """Drop Prem.csv rows whose latitude or longitude is invalid."""
         try:
+            self._set_progress(40, "Cleaning Prem.csv lat/lon...")
             removed, status = self.file_manager.clean_prem_lat_lon()
         except Exception as e:
+            self._reset_progress()
             QMessageBox.critical(self, "Error", f"An error occurred while cleaning Prem.csv: {e}")
             return
 
         if status == 'no_file':
+            self._reset_progress()
             QMessageBox.warning(self, "Warning", "Prem.csv has not been imported.")
         elif status == 'no_lat_lon_columns':
+            self._reset_progress()
             QMessageBox.warning(self, "Warning", "Could not find latitude/longitude columns in Prem.csv.")
         else:
+            self._set_progress(100, f"Removed {removed} row(s)")
             QMessageBox.information(self, "Success", f"Removed {removed} Prem.csv row(s) with invalid lat/lon.")
+            self._reset_progress()
+
+    def create_files(self):
+        """Run the system analysis on the imported files and write outputs to a user-selected folder."""
+        required = {
+            'Collectors.csv': self.file_manager.collectors_file,
+            'CollectorUsagePrem.csv': self.file_manager.collector_usage_prem_file,
+            'DataAll.csv': self.file_manager.data_all_file,
+            'DataByColl.csv': self.file_manager.data_by_coll_file,
+            'RSSIDecline.csv': self.file_manager.rssi_decline_file,
+            'Prem.csv': self.file_manager.prem_file,
+        }
+        missing = [name for name, path in required.items() if not path]
+        if missing:
+            QMessageBox.warning(self, "Missing Files",
+                                "Cannot create files. Missing: " + ", ".join(missing))
+            return
+
+        months = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December']
+        month_name, ok = QInputDialog.getItem(self, "Analysis Month",
+                                              "Select the month of analysis:", months, 11, False)
+        if not ok:
+            return
+        analysis_month = months.index(month_name) + 1
+
+        output_dir = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+        if not output_dir:
+            return
+
+        try:
+            summary = run_analysis(
+                collectors_file=required['Collectors.csv'],
+                collector_usage_file=required['CollectorUsagePrem.csv'],
+                data_all_file=required['DataAll.csv'],
+                data_by_coll_file=required['DataByColl.csv'],
+                rssi_decline_file=required['RSSIDecline.csv'],
+                prem_file=required['Prem.csv'],
+                output_dir=output_dir,
+                analysis_month=analysis_month,
+                progress_callback=self._set_progress,
+            )
+        except Exception as e:
+            self._reset_progress()
+            QMessageBox.critical(self, "Error", f"Analysis failed: {e}")
+            return
+
+        QMessageBox.information(
+            self, "Success",
+            f"Analysis complete for {month_name}.\n\n"
+            f"Output folder: {summary['output_dir']}\n"
+            f"Good collectors: {summary['good_collectors']}\n"
+            f"Good MIUs: {summary['good_mius']}\n"
+            f"Cleaned Prem rows: {summary['cleaned_prem']}\n"
+            f"Cleaned Data rows: {summary['cleaned_data']}\n"
+            f"Measurement files: {summary['measurement_files']}\n"
+            f"Meter files: {summary['meter_files']}"
+        )
+        self._reset_progress()
 
     def remove_all_files(self):
         reply = QMessageBox.question(self, "Confirm", "Are you sure you want to remove all files from memory?",

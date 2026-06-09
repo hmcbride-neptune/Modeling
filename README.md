@@ -14,7 +14,9 @@ The propagation modeling workflow is designed to:
 
 1. Clone this repository
 2. Install required dependencies
-3. Run the modeling scripts to generate all necessary files
+3. Run the modeling scripts to generate all necessary files 
+    .\venv\Scripts\Activate.ps1 
+    python run.py
 
 ## Output
 
