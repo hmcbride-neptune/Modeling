@@ -13,6 +13,28 @@ def _find_column(df, candidates):
     return None
 
 
+def _outlier_mask(series, threshold=3.5):
+    """Return a boolean mask marking values that are far from the majority.
+
+    Uses the modified z-score (median + median absolute deviation), which is
+    robust: a handful of wildly-off values won't distort the center the way a
+    mean/std would. True = outlier (should be dropped).
+    """
+    median = series.median()
+    abs_dev = (series - median).abs()
+    mad = abs_dev.median()
+    if mad == 0:
+        # MAD is zero when most values are identical; fall back to the mean of
+        # the absolute deviations so we can still flag the stray values.
+        mean_dev = abs_dev.mean()
+        if mean_dev == 0:
+            return pd.Series(False, index=series.index)
+        modified_z = abs_dev / (1.253314 * mean_dev)
+    else:
+        modified_z = 0.6745 * abs_dev / mad
+    return modified_z > threshold
+
+
 class FileManager:
     """Owns the imported CSV file paths and the collector data within them."""
 
@@ -57,9 +79,10 @@ class FileManager:
     def clean_prem_lat_lon(self):
         """Drop Prem.csv rows with invalid lat/lon and save the cleaned file.
 
-        Invalid means: blank, non-numeric, zero, negative latitude, or positive longitude.
-        Returns (removed_count, status) where status is one of
-        'ok', 'no_file', 'no_lat_lon_columns'.
+        Invalid means: blank, non-numeric, zero, negative latitude, positive
+        longitude, or a lat/lon that is a geographic outlier (far from the
+        majority of points). Returns (removed_count, status) where status is
+        one of 'ok', 'no_file', 'no_lat_lon_columns'.
         """
         if not self.prem_file:
             return 0, 'no_file'
@@ -73,6 +96,13 @@ class FileManager:
         lat = pd.to_numeric(df[lat_col], errors='coerce')
         lon = pd.to_numeric(df[lon_col], errors='coerce')
         valid = (lat > 0) & (lon < 0)
+
+        # Among the rows that passed the basic checks, drop coordinates that sit
+        # far from the cluster (e.g. a lone -78.x longitude among -90.x values).
+        if valid.sum() > 2:
+            outlier = _outlier_mask(lat[valid]) | _outlier_mask(lon[valid])
+            valid.loc[outlier[outlier].index] = False
+
         cleaned = df[valid]
         cleaned.to_csv(self.prem_file, index=False)
         removed = original - len(cleaned)
