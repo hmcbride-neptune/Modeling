@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout,
     QHBoxLayout, QWidget, QListWidget, QListWidgetItem, QMessageBox,
     QLabel, QLineEdit, QDialog, QDialogButtonBox, QTableWidget,
+    QAbstractItemView,
     QTableWidgetItem, QInputDialog, QProgressBar,
 )
 from file_cleanup import FileManager
@@ -181,9 +182,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.collector_search)
 
         self.collector_list_widget = QListWidget()
-        self.collector_list_widget.setSelectionMode(self.collector_list_widget.MultiSelection)
+        # Use ExtendedSelection so Ctrl+click toggles selection and mouse-drag selects ranges
+        self.collector_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.collector_list_widget.itemSelectionChanged.connect(self.sync_selected_collectors)
         layout.addWidget(self.collector_list_widget)
+
+        # Label showing how many gateways/collectors are currently selected
+        self.selected_count_label = QLabel("Selected gateways: 0")
+        layout.addWidget(self.selected_count_label)
 
         self.filter_button = QPushButton("Filter Collectors")
         self.filter_button.clicked.connect(self.filter_collectors)
@@ -290,6 +296,8 @@ class MainWindow(QMainWindow):
             if item.text() in self.selected_collectors:
                 item.setSelected(True)
         self.collector_list_widget.blockSignals(False)
+        # Update selected count label to reflect preserved selections
+        self.update_selected_gateways_count()
 
     def search_collectors(self, text):
         self.search_text = text
@@ -304,6 +312,8 @@ class MainWindow(QMainWindow):
         self.selected_collectors = [text for text in self.selected_collectors if text not in visible_items]
         self.selected_collectors.extend([text for text in selected_texts if text not in self.selected_collectors])
         self.selected_collectors = [text for text in self.selected_collectors if text in self.all_collectors]
+        # Update the selected count label whenever the selection changes
+        self.update_selected_gateways_count()
 
     def filter_collectors(self):
         selected_items = self.collector_list_widget.selectedItems()
@@ -416,7 +426,17 @@ class MainWindow(QMainWindow):
             self.files_list_widget.clear()
             self.files_list_widget.addItem("No files imported")
             self.collector_list_widget.clear()
+            # reflect zero selections in the UI
+            self.update_selected_gateways_count()
             QMessageBox.information(self, "Success", "All files have been removed from memory.")
+
+    def update_selected_gateways_count(self):
+        """Set the selected gateways label text to the current number of selected collectors."""
+        try:
+            count = len(self.selected_collectors) if self.selected_collectors is not None else 0
+        except Exception:
+            count = 0
+        self.selected_count_label.setText(f"Selected gateways: {count}")
 
 
 if __name__ == "__main__":

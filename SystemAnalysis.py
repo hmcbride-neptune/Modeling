@@ -35,6 +35,7 @@
 # 				MIU list for modeling (Good_MIUs.csv) (If MIU belongs to bad collector remove from list)
 
 import os
+import re
 import pandas as pd
 
 
@@ -143,10 +144,35 @@ def run_analysis(
     measurement_dir = os.path.join(output_dir, 'Measurement_Files')
     os.makedirs(measurement_dir, exist_ok=True)
     measurement_groups = list(cleaned_data.groupby('device_description'))
+    # helper to make a collector name safe for use as a filename
+    def _sanitize_filename(name: str) -> str:
+        """Return a filesystem-safe filename derived from `name`.
+
+        Replace tabs and unsafe characters with underscores so the original
+        name remains readable (e.g. "L/S 1234" -> "L_S 1234"). Collapse
+        repeated underscores and normalize whitespace. Strip trailing
+        spaces/dots to avoid Windows filename issues.
+        """
+        if name is None:
+            return ''
+        s = str(name)
+        # replace tabs with underscore
+        s = s.replace('\t', '_')
+        # replace unsafe characters with underscores
+        s = re.sub(r'[<>:\"/\\|?*]', '_', s)
+        # normalize whitespace to single spaces
+        s = re.sub(r'\s+', ' ', s)
+        # collapse multiple underscores to a single underscore
+        s = re.sub(r'_+', '_', s)
+        # strip surrounding whitespace and trailing dots (Windows forbids trailing dots/spaces)
+        s = s.strip().rstrip('.')
+        # if the result is empty, return a safe placeholder
+        return s if s else '_'
     for i, (collector, group) in enumerate(measurement_groups):
+        safe_name = _sanitize_filename(collector)
         report(75 + int(10 * (i / max(1, len(measurement_groups)))),
-               f'Writing measurement file: {collector}')
-        output_path = os.path.join(measurement_dir, f'{collector}.mea')
+               f'Writing measurement file: {safe_name}')
+        output_path = os.path.join(measurement_dir, f'{safe_name}.mea')
         output_data = group[['prem_longitude', 'prem_latitude', 'avg rssi']]
         output_data.to_csv(output_path, index=False, header=False)
         with open(output_path, 'r') as f:
@@ -159,9 +185,10 @@ def run_analysis(
     os.makedirs(meter_dir, exist_ok=True)
     meter_groups = list(cleaned_data.groupby('device_description'))
     for i, (collector, group) in enumerate(meter_groups):
+        safe_name = _sanitize_filename(collector)
         report(85 + int(10 * (i / max(1, len(meter_groups)))),
-               f'Writing meter file: {collector}')
-        output_path = os.path.join(meter_dir, f'{collector}.csv')
+               f'Writing meter file: {safe_name}')
+        output_path = os.path.join(meter_dir, f'{safe_name}.csv')
         output_data = group[['prem_longitude', 'prem_latitude', 'daysrcvd']]
         output_data.to_csv(output_path, index=False, header=False)
         with open(output_path, 'r') as f:
