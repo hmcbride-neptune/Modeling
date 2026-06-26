@@ -376,7 +376,7 @@ class MainWindow(QMainWindow):
         months = ['January', 'February', 'March', 'April', 'May', 'June',
                   'July', 'August', 'September', 'October', 'November', 'December']
         month_name, ok = QInputDialog.getItem(self, "Analysis Month",
-                                              "Select the month of analysis:", months, 11, False)
+                                              "Select the month of analysis:", months, 0, False)
         if not ok:
             return
         analysis_month = months.index(month_name) + 1

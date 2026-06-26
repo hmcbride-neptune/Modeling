@@ -134,6 +134,7 @@ def run_analysis(
         right_on='meter_miu_id',
         how='inner',
     )
+    print(cleaned_data.columns)
     cleaned_data = cleaned_data[cleaned_data['device_description'].isin(good_collector_names)].copy()
     objectid_col = cleaned_data.pop('objectid')
     cleaned_data.insert(0, 'objectid', objectid_col)
