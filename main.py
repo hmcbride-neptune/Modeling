@@ -399,7 +399,7 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             self._reset_progress()
-            QMessageBox.critical(self, "Error", f"Analysis failed: {e}")
+            QMessageBox.critical(self, "Error", f"Analysis failed: {e}\n\nCheck Files for extra columns.")
             return
 
         QMessageBox.information(
