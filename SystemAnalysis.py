@@ -121,8 +121,14 @@ def run_analysis(
     report(55, 'Building cleaned Prem and DataByColl...')
     cleaned_prem = prem[~prem['meter_miu_id'].isin(bad_mius)].copy()
     cleaned_data_by_coll = data_by_coll[~data_by_coll['miu id'].isin(bad_mius)]
-    # 0-indexed objectid to match the PQ tool's numbering convention
-    if not any(col.lower() == 'objectid' for col in cleaned_prem.columns):
+    # 0-indexed objectid to match the PQ tool's numbering convention.
+    # Source extracts may already carry one under any casing (e.g. ArcGIS
+    # exports use "ObjectId"), so normalize it to lowercase rather than
+    # leaving a column the rest of this function can't find.
+    existing_objectid = [c for c in cleaned_prem.columns if c.lower() == 'objectid']
+    if existing_objectid:
+        cleaned_prem = cleaned_prem.rename(columns={existing_objectid[0]: 'objectid'})
+    else:
         cleaned_prem.insert(0, 'objectid', range(len(cleaned_prem)))
     cleaned_prem.to_csv(os.path.join(output_dir, 'Cleaned_Prem.csv'), index=False)
     cleaned_data_by_coll.to_csv(os.path.join(output_dir, 'Cleaned_DataByColl.csv'), index=False)
@@ -199,10 +205,7 @@ def run_analysis(
 
     report(96, 'Writing PQ_Input.csv...')
     pq_path = os.path.join(output_dir, 'PQ_Input.csv')
-    if 'ObjectId' in cleaned_prem.columns:
-        pq_data = cleaned_prem[['prem_latitude', 'prem_longitude', 'ObjectId']]
-    else:
-        pq_data = cleaned_prem[['prem_latitude', 'prem_longitude', 'objectid']]
+    pq_data = cleaned_prem[['prem_latitude', 'prem_longitude', 'objectid']]
     pq_data.to_csv(pq_path, index=False, header=False)
 
     report(100, 'Analysis complete')
