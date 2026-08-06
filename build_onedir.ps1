@@ -24,7 +24,9 @@ Write-Host "Building one-dir executable for $entry"
 
 if (Test-Path "pyinstaller_modeling.spec") {
     Write-Host 'Found pyinstaller_modeling.spec - running PyInstaller with the spec (ensures custom hooks are used).'
-    & "$venvPath\Scripts\pyinstaller.exe" "pyinstaller_modeling.spec"
+    # No --clean here: OneDrive can hold locks on the build cache dir, which
+    # makes PyInstaller's pre-build rmtree fail with WinError 5.
+    & "$venvPath\Scripts\pyinstaller.exe" --noconfirm --distpath $distDir --workpath $workDir "pyinstaller_modeling.spec"
 } else {
     $pyinstallerCmd = @(
         "-y",
@@ -40,7 +42,9 @@ if (Test-Path "pyinstaller_modeling.spec") {
 }
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host ("Build complete. One-dir output is in: {0}\{1}" -f $distDir, (Split-Path $entry -LeafBase))
+    # -LeafBase is PowerShell 6+; use basename via GetFileNameWithoutExtension for PS 5.1.
+    $entryName = [System.IO.Path]::GetFileNameWithoutExtension($entry)
+    Write-Host ("Build complete. One-dir output is in: {0}\{1}" -f $distDir, $entryName)
 } else {
     Write-Error ("PyInstaller failed with exit code {0}" -f $LASTEXITCODE)
 }

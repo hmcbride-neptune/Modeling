@@ -2,11 +2,12 @@
 import sys
 import os
 
-# Set up Qt plugin path before importing PyQt5
+# Set up Qt plugin path before importing PyQt5. When frozen, PyInstaller's
+# runtime hook has already pointed Qt at the bundled plugins, so leave it alone.
 script_dir = os.path.dirname(os.path.abspath(__file__))
-plugins_path = os.path.join(script_dir, 'venv', 'Lib', 'site-packages', 'PyQt5', 'Qt5', 'plugins')
-
-os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = plugins_path
+if not getattr(sys, 'frozen', False):
+    plugins_path = os.path.join(script_dir, 'venv', 'Lib', 'site-packages', 'PyQt5', 'Qt5', 'plugins')
+    os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = plugins_path
 
 # Import the main function and classes
 sys.path.insert(0, script_dir)
